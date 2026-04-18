@@ -1,9 +1,4 @@
 #!/bin/bash
-#=========================================================
-#   ⭐ BLUEPRINT AUTO INSTALLER (Optimized Edition)
-#      Compatible with Debian/Ubuntu + Pterodactyl
-#      Created by Hopingboyz — Fully Optimized
-#=========================================================
 
 set -o errexit
 set -o pipefail
@@ -30,10 +25,9 @@ cat << "EOF"
 EOF
 echo -e "${RESET}"
 
-echo -e "${GREEN}AUTO BLUEPRINT INSTALLER — Optimized Version${RESET}"
+echo -e "${GREEN} BLUEPRINT INSTALLER — BY TUSHAR ${RESET}"
 echo
 
-#============ LOGGING ============#
 LOG_FILE="/var/log/blueprint-installer.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -41,7 +35,6 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-#============ LOADING ANIMATION ============#
 loading() {
     local msg="$1"
     echo -ne "${YELLOW}${msg}${RESET}"
@@ -52,34 +45,30 @@ loading() {
     echo
 }
 
-#============ ERROR EXIT ============#
 fail() {
     echo -e "${RED}❌ ERROR: $1${RESET}"
     log "ERROR: $1"
     exit 1
 }
 
-#============ CHECK COMMAND ============#
 require() {
     if ! command -v "$1" >/dev/null 2>&1; then
         fail "Missing required command: $1"
     fi
 }
 
-#============ CHECK IF ALREADY INSTALLED ============#
 check_already_installed() {
     if [[ -f "/var/www/pterodactyl/.blueprint-installed" ]]; then
-        echo -e "${YELLOW}⚠️  Blueprint appears to be already installed.${RESET}"
+        echo -e "${YELLOW}⚠️  BLUEPRINT APPEARS TO BE ALREADY INSTALLED.${RESET}"
         read -p "Do you want to reinstall? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo -e "${GREEN}Installation cancelled.${RESET}"
+            echo -e "${GREEN}INSTALLATION CANCLED.${RESET}"
             exit 0
         fi
     fi
 }
 
-#============ CHECK ROOT PRIVILEGES ============#
 check_privileges() {
     if [[ $EUID -eq 0 ]]; then
         echo -e "${YELLOW}⚠️  Warning: Running as root is not recommended.${RESET}"
@@ -92,8 +81,6 @@ check_privileges() {
         fail "This script requires sudo privileges. Run with sudo or as root."
     fi
 }
-
-#============ INSTALL PACKAGE IF MISSING ============#
 install_if_missing() {
     local pkg="$1"
     if ! dpkg -l | grep -q "^ii  $pkg "; then
@@ -107,7 +94,7 @@ install_if_missing() {
 
 #============ MAIN SCRIPT ============#
 main() {
-    log "Starting Blueprint installation"
+    log "STARTING BLUEPRINT INSTALLATION"
     
     # Initial checks
     check_privileges
