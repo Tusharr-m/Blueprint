@@ -1,7 +1,7 @@
 # Blueprint Installer Documentation
 
 ## Overview
-The Blueprint installer is a robust tool designed for seamless deployment and management of the Blueprint application. It streamlines the installation process and ensures that all necessary components are correctly configured.
+The Blueprint installer is a robust tool designed for seamless deployment and management of the Blueprint application. It streamlines the installation process and ensures that all necessary components are properly configured.
 
 ## Features
 - Easy installation process
@@ -19,6 +19,11 @@ The Blueprint installer is a robust tool designed for seamless deployment and ma
 1. Download the Blueprint installer from the official website.
 2. Open the installer and follow the on-screen instructions.
 3. Complete the installation process by selecting the desired configurations.
+
+### Quick Install (One-Line Command)
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/hopingboyz/blueprint/main/blueprint-installer.sh)
+```
 
 ## Post-Installation Setup
 After installation, it is recommended to:
