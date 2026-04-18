@@ -100,14 +100,6 @@ After installation:
 
 ---
 
-## 🛡️ SECURITY NOTICE
-
-Always review scripts before running:
-
-```bash
-curl -fsSL https://bu.pr.sh/install
-```
-
 Running remote scripts blindly is not recommended in production environments.
 
 ---
