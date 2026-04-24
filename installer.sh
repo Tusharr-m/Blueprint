@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# ╔═══════════════════════════════════════════════════════════════════╗
-# ║         BLUEPRINT CLI — MAIN ENTRY POINT                         ║
-# ║         Version 2.0.0  •  By Tushar                              ║
-# ╚═══════════════════════════════════════════════════════════════════╝
 
 set -euo pipefail
-
-# ── Resolve script directory for module sourcing ────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 
@@ -47,7 +41,6 @@ draw_line() {
     echo -e "${color}${line}${BK}"
 }
 
-# ── Beautiful ASCII header banner ─────────────────────────────────────
 show_header() {
     clear
     echo
