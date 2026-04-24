@@ -2,7 +2,32 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODULES_DIR="${SCRIPT_DIR}/modules"
+
+resolve_modules_dir() {
+    local source_path=""
+    source_path="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || true)"
+
+    local candidates=(
+        "${SCRIPT_DIR}/modules"
+        "$(pwd)/modules"
+    )
+
+    if [[ -n "$source_path" ]]; then
+        candidates+=("$(dirname "$source_path")/modules")
+    fi
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    printf '%s\n' "${SCRIPT_DIR}/modules"
+}
+
+MODULES_DIR="$(resolve_modules_dir)"
 
 # ── Color palette ────────────────────────────────────────────────────
 BK="\e[0m"
