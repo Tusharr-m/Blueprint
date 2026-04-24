@@ -31,6 +31,7 @@ echo
 
 LOG_FILE="/var/log/blueprint-installer.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
+LIVE_LOG_LINES=10
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
@@ -43,6 +44,56 @@ loading() {
         echo -ne "."
         sleep 0.3
     done
+    echo
+}
+
+draw_live_logs() {
+    local title="$1"
+    local temp_log="$2"
+    local spinner="$3"
+    local lines=()
+    mapfile -t lines < <(tail -n "$LIVE_LOG_LINES" "$temp_log" 2>/dev/null)
+    while ((${#lines[@]} < LIVE_LOG_LINES)); do lines=("" "${lines[@]}"); done
+
+    printf "\033[H\033[J"
+    echo -e "${CYAN} AUTO BLUEPRINT INSTALLER — BY TUSHAR ${RESET}"
+    printf "${YELLOW}Status:${RESET} %s %s\n" "$spinner" "$title"
+    printf "${YELLOW}Log file:${RESET} %s\n\n" "$LOG_FILE"
+    echo -e "${CYAN}Live logs (last ${LIVE_LOG_LINES} lines):${RESET}"
+    for line in "${lines[@]}"; do
+        line="${line//$'\r'/}"
+        printf "  %s\n" "${line:0:120}"
+    done
+}
+
+run_live() {
+    local msg="$1"
+    shift
+    local temp_log
+    temp_log="$(mktemp)"
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local i=0
+
+    (
+        stdbuf -oL -eL "$@" 2>&1 | while IFS= read -r line; do
+            printf '%s\n' "$line" >> "$LOG_FILE"
+            printf '%s\n' "$line" >> "$temp_log"
+        done
+    ) &
+    local pid=$!
+    tput civis 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null; do
+        draw_live_logs "$msg" "$temp_log" "${frames[$i]}"
+        i=$(( (i + 1) % ${#frames[@]} ))
+        sleep 0.2
+    done
+    tput cnorm 2>/dev/null || true
+    draw_live_logs "$msg" "$temp_log" "✔"
+    if ! wait "$pid"; then
+        rm -f "$temp_log"
+        fail "$msg failed"
+    fi
+    rm -f "$temp_log"
     echo
 }
 
@@ -85,8 +136,7 @@ check_privileges() {
 install_if_missing() {
     local pkg="$1"
     if ! dpkg -l | grep -q "^ii  $pkg "; then
-        loading "Installing $pkg"
-        sudo apt install -y "$pkg" || fail "Failed to install $pkg"
+        run_live "Installing $pkg" sudo apt install -y "$pkg"
         log "Installed package: $pkg"
     else
         log "Package already installed: $pkg"
@@ -108,9 +158,8 @@ main() {
     done
 
     #============ SYSTEM UPDATE ============#
-    loading "Updating system packages"
-    sudo apt update -y || fail "System update failed"
-    sudo apt upgrade -y || fail "System upgrade failed"
+    run_live "Updating package lists" sudo apt update -y
+    run_live "Upgrading system packages" sudo apt upgrade -y
 
     #============ INSTALL REQUIRED PACKAGES ============#
     loading "Checking and installing dependencies"
@@ -136,11 +185,9 @@ main() {
 
     [[ -z "$LATEST_URL" ]] && fail "Failed to get latest release URL"
 
-    loading "Downloading Blueprint"
-    wget -q "$LATEST_URL" -O blueprint.zip || fail "Download failed"
+    run_live "Downloading Blueprint" wget -q "$LATEST_URL" -O blueprint.zip
 
-    loading "Extracting Blueprint"
-    unzip -oq blueprint.zip || fail "Unzip failed"
+    run_live "Extracting Blueprint" unzip -oq blueprint.zip
     rm -f blueprint.zip
 
     #============ NODE.JS INSTALLATION ============#
@@ -149,15 +196,14 @@ main() {
 
         # Remove existing Node.js if wrong version
         if command -v node >/dev/null 2>&1; then
-            loading "Removing existing Node.js version"
-            sudo apt remove -y --purge nodejs npm || true
+            run_live "Removing existing Node.js version" sudo apt remove -y --purge nodejs npm
             sudo rm -rf /etc/apt/sources.list.d/nodesource.list
         fi
 
         # Install Node.js 20 using NodeSource
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - || fail "NodeSource setup failed"
-        sudo apt update -y
-        sudo apt install -y nodejs || fail "Node.js installation failed"
+        run_live "Configuring NodeSource repository" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        run_live "Refreshing apt metadata" sudo apt update -y
+        run_live "Installing Node.js 20" sudo apt install -y nodejs
         
         log "Node.js installed/updated to version 20"
     else
@@ -167,9 +213,8 @@ main() {
 
     #============ YARN SETUP ============#
     if ! command -v yarn >/dev/null 2>&1; then
-        loading "Installing Yarn"
-        sudo npm install -g corepack || fail "Corepack installation failed"
-        sudo corepack enable || fail "Corepack enable failed"
+        run_live "Installing Corepack" sudo npm install -g corepack
+        run_live "Enabling Corepack" sudo corepack enable
         log "Yarn installed via corepack"
     else
         loading "Yarn already installed"
@@ -177,8 +222,7 @@ main() {
     fi
 
     #============ FRONTEND DEPENDENCIES ============#
-    loading "Installing frontend dependencies"
-    yarn install --production=false || fail "Yarn failed to install dependencies"
+    run_live "Installing frontend dependencies" yarn install --production=false
     log "Frontend dependencies installed"
 
     #============ BLUEPRINT CONFIG ============#
@@ -200,11 +244,9 @@ EOF
         fail "blueprint.sh missing! Extraction failed!"
     fi
 
-    loading "Fixing permissions"
-    sudo chmod +x /var/www/pterodactyl/blueprint.sh
+    run_live "Fixing blueprint.sh permissions" sudo chmod +x /var/www/pterodactyl/blueprint.sh
 
-    loading "Running Blueprint installer"
-    sudo bash /var/www/pterodactyl/blueprint.sh || fail "Blueprint failed to run"
+    run_live "Running Blueprint installer" sudo bash /var/www/pterodactyl/blueprint.sh
 
     #============ MARK AS INSTALLED ============#
     sudo touch /var/www/pterodactyl/.blueprint-installed

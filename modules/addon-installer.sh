@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 BP_PTERO_DIR="/var/www/pterodactyl"
+LOG_FILE="/var/log/blueprint-installer.log"
+LIVE_LOG_LINES=10
 
 # ── Colors ─────────────────────────────────────────────────────────────
 BK="\e[0m"
@@ -13,20 +15,59 @@ WH="\e[97m"
 DM="\e[90m"
 BD="\e[1m"
 
-# ── Braille spinner ─────────────────────────────────────────────────────
-_spin() {
-    local pid="$1"
-    local msg="$2"
+_draw_live_logs() {
+    local title="$1"
+    local temp_log="$2"
+    local spinner="$3"
+    local lines=()
+    mapfile -t lines < <(tail -n "$LIVE_LOG_LINES" "$temp_log" 2>/dev/null)
+    while ((${#lines[@]} < LIVE_LOG_LINES)); do lines=("" "${lines[@]}"); done
+
+    printf "\033[H\033[J"
+    echo
+    echo -e "  ${YL}${BD}🧩  ADDON INSTALLER${BK}   ${DM}— Option 2${BK}"
+    echo
+    printf "  ${DM}Status:${BK} ${MG}%s${BK}  ${WH}%s${BK}\n" "$spinner" "$title"
+    printf "  ${DM}Log file:${BK} ${WH}%s${BK}\n\n" "$LOG_FILE"
+    echo -e "  ${CY}${BD}── Live Logs (last ${LIVE_LOG_LINES} lines) ─────────────────────────${BK}"
+    echo
+    for line in "${lines[@]}"; do
+        line="${line//$'\r'/}"
+        printf "  ${DM}%s${BK}\n" "${line:0:120}"
+    done
+}
+
+_run_live_install() {
+    local addon="$1"
+    local temp_log
+    temp_log="$(mktemp)"
     local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local i=0
 
-    tput civis 2>/dev/null
+    (
+        stdbuf -oL -eL blueprint -install "$addon" 2>&1 | while IFS= read -r line; do
+            printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$addon" "$line" | sudo tee -a "$LOG_FILE" >/dev/null
+            printf '%s\n' "$line" >> "$temp_log"
+        done
+    ) &
+    local pid=$!
+
+    tput civis 2>/dev/null || true
     while kill -0 "$pid" 2>/dev/null; do
-        printf "\r  ${MG}%s${BK}  ${DM}Installing: ${WH}%s${BK}  " "${frames[$i]}" "$msg"
+        _draw_live_logs "Installing: $addon" "$temp_log" "${frames[$i]}"
         i=$(( (i + 1) % ${#frames[@]} ))
-        sleep 0.1
+        sleep 0.2
     done
-    tput cnorm 2>/dev/null
+    tput cnorm 2>/dev/null || true
+    _draw_live_logs "Installing: $addon" "$temp_log" "✔"
+
+    if wait "$pid"; then
+        rm -f "$temp_log"
+        return 0
+    fi
+
+    rm -f "$temp_log"
+    return 1
 }
 
 # ── Section divider ─────────────────────────────────────────────────────
@@ -132,11 +173,7 @@ _run_installs() {
 
         printf "  ${DM}[%d/%d]${BK}  " "$(( i + 1 ))" "${#SELECTED_ADDONS[@]}"
 
-        ( blueprint -install "$addon" &>/dev/null ) &
-        local pid=$!
-        _spin "$pid" "$addon"
-
-        if wait "$pid"; then
+        if _run_live_install "$addon"; then
             printf "\r  ${GR}✔${BK}  %-55s\n" "$addon"
             ok_list+=("$addon")
         else

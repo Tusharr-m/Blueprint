@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 LOG_FILE="/var/log/blueprint-installer.log"
+LIVE_LOG_LINES=10
 
 # ── Colors ─────────────────────────────────────────────────────────────
 BK="\e[0m"
@@ -18,46 +19,83 @@ _log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | sudo tee -a "$LOG_FILE" >/dev/null
 }
 
-# ── Braille spinner ─────────────────────────────────────────────────────
-_spinner() {
-    local pid="$1"
-    local msg="$2"
-    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
-    local i=0
+_draw_live_frame() {
+    local msg="$1"
+    local temp_log="$2"
+    local frame="$3"
 
-    tput civis 2>/dev/null
-    while kill -0 "$pid" 2>/dev/null; do
-        printf "\r  ${MG}%s${BK}  ${DM}%s${BK}  " "${frames[$i]}" "$msg"
-        i=$(( (i + 1) % ${#frames[@]} ))
-        sleep 0.08
+    local lines=()
+    mapfile -t lines < <(tail -n "$LIVE_LOG_LINES" "$temp_log" 2>/dev/null)
+
+    while ((${#lines[@]} < LIVE_LOG_LINES)); do
+        lines=("" "${lines[@]}")
     done
-    tput cnorm 2>/dev/null
+
+    printf "\033[H\033[J"
+    echo
+    echo -e "  ${CY}${BD}⚡  BLUEPRINT FRAMEWORK INSTALLER${BK}   ${DM}— Option 1${BK}"
+    echo
+    echo -e "  ${CY}┌──────────────────────────────────────────────────────────┐${BK}"
+    echo -e "  ${CY}│${BK}   ${WH}${BD}📦  Installing Blueprint Framework on Pterodactyl${BK}    ${CY}│${BK}"
+    printf  "  ${CY}│${BK}   ${DM}%s ${MG}%s${BK}  ${WH}%-36s${BK} ${CY}│${BK}\n" "Status:" "$frame" "$msg"
+    printf  "  ${CY}│${BK}   ${DM}Log file: ${WH}%-45s${BK} ${CY}│${BK}\n" "$LOG_FILE"
+    echo -e "  ${CY}└──────────────────────────────────────────────────────────┘${BK}"
+    echo
+    echo -e "  ${CY}${BD}── Live Logs (last ${LIVE_LOG_LINES} lines) ─────────────────────────${BK}"
+    echo
+    for line in "${lines[@]}"; do
+        line="${line//$'\r'/}"
+        printf "  ${DM}%s${BK}\n" "${line:0:120}"
+    done
 }
 
-# ── Run command with spinner + result feedback ──────────────────────────
+# ── Run command with live log window + spinner ─────────────────────────
 _run() {
     local msg="$1"
     shift
 
-    ( "$@" &>/dev/null ) &
+    local temp_log
+    temp_log="$(mktemp)"
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local i=0
+
+    (
+        stdbuf -oL -eL "$@" 2>&1 | while IFS= read -r line; do
+            printf '%s\n' "$line" | sudo tee -a "$LOG_FILE" >/dev/null
+            printf '%s\n' "$line" >> "$temp_log"
+        done
+    ) &
     local pid=$!
-    _spinner "$pid" "$msg"
+
+    tput civis 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null; do
+        _draw_live_frame "$msg" "$temp_log" "${frames[$i]}"
+        i=$(( (i + 1) % ${#frames[@]} ))
+        sleep 0.2
+    done
+    tput cnorm 2>/dev/null || true
+    _draw_live_frame "$msg" "$temp_log" "✔"
 
     if wait "$pid"; then
-        printf "\r  ${GR}✔${BK}  %-55s\n" "$msg"
+        echo
+        printf "  ${GR}✔${BK}  %-55s\n" "$msg"
         _log "OK: $msg"
-    else
-        printf "\r  ${RD}✖${BK}  Failed: %-49s\n" "$msg"
-        _log "FAIL: $msg"
-        echo
-        echo -e "  ${RD}╔══════════════════════════════════════════════════╗${BK}"
-        echo -e "  ${RD}║  ✖  Installation step failed — aborting.         ║${BK}"
-        printf  "  ${RD}║${BK}  Step: %-42s ${RD}║${BK}\n" "$msg"
-        printf  "  ${RD}║${BK}  Log : %-42s ${RD}║${BK}\n" "$LOG_FILE"
-        echo -e "  ${RD}╚══════════════════════════════════════════════════╝${BK}"
-        echo
-        exit 1
+        rm -f "$temp_log"
+        return 0
     fi
+
+    echo
+    printf "  ${RD}✖${BK}  Failed: %-49s\n" "$msg"
+    _log "FAIL: $msg"
+    echo
+    echo -e "  ${RD}╔══════════════════════════════════════════════════╗${BK}"
+    echo -e "  ${RD}║  ✖  Installation step failed — aborting.         ║${BK}"
+    printf  "  ${RD}║${BK}  Step: %-42s ${RD}║${BK}\n" "$msg"
+    printf  "  ${RD}║${BK}  Log : %-42s ${RD}║${BK}\n" "$LOG_FILE"
+    echo -e "  ${RD}╚══════════════════════════════════════════════════╝${BK}"
+    echo
+    rm -f "$temp_log"
+    exit 1
 }
 
 # ── Section divider ─────────────────────────────────────────────────────
@@ -225,17 +263,8 @@ EOF
 
     sudo chmod +x /var/www/pterodactyl/blueprint.sh
 
-    echo -e "  ${YL}⚡  Running blueprint.sh — this may take a while...${BK}"
-    echo
-
-    if sudo bash /var/www/pterodactyl/blueprint.sh; then
-        printf "  ${GR}✔${BK}  %-55s\n" "Blueprint installer completed successfully"
-        _log "Blueprint installer ran successfully"
-    else
-        echo -e "  ${RD}✖  blueprint.sh exited with an error.${BK}"
-        _log "blueprint.sh failed"
-        exit 1
-    fi
+    _run "Running blueprint.sh installer" sudo bash /var/www/pterodactyl/blueprint.sh
+    _log "Blueprint installer ran successfully"
 
     sudo touch /var/www/pterodactyl/.blueprint-installed
     _log "Installation marked complete"

@@ -5,6 +5,8 @@ readonly BP_TEMP_DIR="/tmp/blueprints"
 readonly BP_DEST_DIR="/var/www/pterodactyl"
 readonly BP_RAW_BASE="https://raw.githubusercontent.com"
 readonly BP_API_BASE="https://api.github.com/repos"
+readonly BP_LOG_FILE="/var/log/blueprint-installer.log"
+readonly BP_LIVE_LINES=10
 
 # ── Colors ─────────────────────────────────────────────────────────────
 BK="\e[0m"
@@ -17,21 +19,59 @@ WH="\e[97m"
 DM="\e[90m"
 BD="\e[1m"
 
-# ── Braille spinner animation ──────────────────────────────────────────
-_spinner() {
-    local pid="$1"
-    local msg="$2"
+_draw_live_logs() {
+    local title="$1"
+    local temp_log="$2"
+    local spinner="$3"
+    local lines=()
+    mapfile -t lines < <(tail -n "$BP_LIVE_LINES" "$temp_log" 2>/dev/null)
+    while ((${#lines[@]} < BP_LIVE_LINES)); do lines=("" "${lines[@]}"); done
+
+    printf "\033[H\033[J"
+    echo
+    echo -e "  ${MG}${BD}⚡  BLUEPRINT MANAGER${BK}   ${DM}— GitHub Downloader${BK}"
+    echo
+    printf "  ${DM}Status:${BK} ${MG}%s${BK}  ${WH}%s${BK}\n" "$spinner" "$title"
+    printf "  ${DM}Log file:${BK} ${WH}%s${BK}\n\n" "$BP_LOG_FILE"
+    echo -e "  ${CY}${BD}── Live Logs (last ${BP_LIVE_LINES} lines) ─────────────────────────${BK}"
+    echo
+    for line in "${lines[@]}"; do
+        line="${line//$'\r'/}"
+        printf "  ${DM}%s${BK}\n" "${line:0:120}"
+    done
+}
+
+_run_live() {
+    local msg="$1"
+    shift
+    local temp_log
+    temp_log="$(mktemp)"
     local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local i=0
 
-    tput civis 2>/dev/null
+    (
+        stdbuf -oL -eL "$@" 2>&1 | while IFS= read -r line; do
+            printf '[%s] [manager] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line" | sudo tee -a "$BP_LOG_FILE" >/dev/null
+            printf '%s\n' "$line" >> "$temp_log"
+        done
+    ) &
+    local pid=$!
+
+    tput civis 2>/dev/null || true
     while kill -0 "$pid" 2>/dev/null; do
-        printf "\r  ${MG}%s${BK}  ${DM}%s${BK}  " "${frames[$i]}" "$msg"
+        _draw_live_logs "$msg" "$temp_log" "${frames[$i]}"
         i=$(( (i + 1) % ${#frames[@]} ))
-        sleep 0.08
+        sleep 0.2
     done
-    tput cnorm 2>/dev/null
-    printf "\r  ${GR}✔${BK}  %-55s\n" "$msg"
+    tput cnorm 2>/dev/null || true
+    _draw_live_logs "$msg" "$temp_log" "✔"
+
+    if wait "$pid"; then
+        rm -f "$temp_log"
+        return 0
+    fi
+    rm -f "$temp_log"
+    return 1
 }
 
 # ── Styled error panel ─────────────────────────────────────────────────
@@ -62,7 +102,7 @@ _preflight() {
     if ! command -v jq &>/dev/null; then
         echo -e "  ${YL}⚡  jq not found — installing automatically...${BK}"
         echo
-        sudo apt-get install -y jq -qq 2>/dev/null || {
+        _run_live "Installing jq" sudo apt-get install -y jq -qq || {
             _error "Failed to install jq. Run: sudo apt install jq"
             return 1
         }
@@ -236,13 +276,7 @@ _download_file() {
     local raw_url="${BP_RAW_BASE}/${BP_REPO}/${BP_BRANCH}/${filepath}"
     local dest_tmp="${BP_TEMP_DIR}/${filename}"
 
-    (
-        curl -fsSL "$raw_url" -o "$dest_tmp" 2>/dev/null
-    ) &
-    local dl_pid=$!
-    _spinner "$dl_pid" "Downloading  ${filename}"
-
-    if ! wait "$dl_pid"; then
+    if ! _run_live "Downloading ${filename}" curl -fL --progress-bar "$raw_url" -o "$dest_tmp"; then
         printf "  ${RD}✖${BK}  Download failed: %-40s\n" "$filename"
         FAILED_FILES+=("$filename")
         return 1

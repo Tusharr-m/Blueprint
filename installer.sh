@@ -28,6 +28,14 @@ resolve_modules_dir() {
 }
 
 MODULES_DIR="$(resolve_modules_dir)"
+MODULE_FETCH_BASE="${BLUEPRINT_MODULE_BASE:-https://raw.githubusercontent.com/Tusharr-m/Blueprint/main/modules}"
+MODULE_FETCH_BASE_FALLBACK_1="https://cdn.jsdelivr.net/gh/Tusharr-m/Blueprint@main/modules"
+MODULE_FETCH_BASE_FALLBACK_2="https://github.com/Tusharr-m/Blueprint/raw/main/modules"
+REQUIRED_MODULES=(
+    "blueprint-installer.sh"
+    "addon-installer.sh"
+    "blueprint-manager.sh"
+)
 
 # ── Color palette ────────────────────────────────────────────────────
 BK="\e[0m"
@@ -128,6 +136,84 @@ require_module() {
     source "$mod"
 }
 
+fetch_missing_module() {
+    local module_name="$1"
+    local target_dir="$2"
+    local target_file="${target_dir}/${module_name}"
+    local module_url
+    local bases=(
+        "$MODULE_FETCH_BASE"
+        "$MODULE_FETCH_BASE_FALLBACK_1"
+        "$MODULE_FETCH_BASE_FALLBACK_2"
+    )
+
+    mkdir -p "$target_dir"
+
+    local base
+    for base in "${bases[@]}"; do
+        module_url="${base}/${module_name}"
+        if curl -fsSL "$module_url" -o "$target_file"; then
+            chmod +x "$target_file" 2>/dev/null || true
+            return 0
+        fi
+    done
+
+    rm -f "$target_file"
+    return 1
+}
+
+ensure_modules_available() {
+    local missing=()
+    local module
+    for module in "${REQUIRED_MODULES[@]}"; do
+        if [[ ! -f "${MODULES_DIR}/${module}" ]]; then
+            missing+=("$module")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    local cache_dir
+    cache_dir="${TMPDIR:-/tmp}/blueprint-modules"
+    mkdir -p "$cache_dir"
+
+    local fetched=0
+    for module in "${missing[@]}"; do
+        if fetch_missing_module "$module" "$cache_dir"; then
+            fetched=1
+        fi
+    done
+
+    if [[ $fetched -eq 1 ]]; then
+        MODULES_DIR="$cache_dir"
+    fi
+
+    local unresolved=()
+    for module in "${REQUIRED_MODULES[@]}"; do
+        if [[ ! -f "${MODULES_DIR}/${module}" ]]; then
+            unresolved+=("$module")
+        fi
+    done
+
+    if [[ ${#unresolved[@]} -gt 0 ]]; then
+        echo
+        echo -e "  ${RD}╔══════════════════════════════════════════════════════════════╗${BK}"
+        echo -e "  ${RD}║  ✖  Could not load required modules                         ║${BK}"
+        echo -e "  ${RD}╠══════════════════════════════════════════════════════════════╣${BK}"
+        for module in "${unresolved[@]}"; do
+            printf "  ${RD}║${BK}  Missing: %-51s ${RD}║${BK}\n" "modules/${module}"
+        done
+        echo -e "  ${RD}╠══════════════════════════════════════════════════════════════╣${BK}"
+        printf "  ${RD}║${BK}  Fix: %-55s ${RD}║${BK}\n" "git clone https://github.com/Tusharr-m/Blueprint && cd Blueprint"
+        printf "  ${RD}║${BK}       %-55s ${RD}║${BK}\n" "then run: bash installer.sh"
+        echo -e "  ${RD}╚══════════════════════════════════════════════════════════════╝${BK}"
+        echo
+        exit 1
+    fi
+}
+
 # ── Interactive main menu ─────────────────────────────────────────────
 show_menu() {
     while true; do
@@ -197,6 +283,7 @@ show_exit() {
 
 # ── Entry point ───────────────────────────────────────────────────────
 main() {
+    ensure_modules_available
     check_requirements
     show_menu
 }
