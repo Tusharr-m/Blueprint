@@ -26,7 +26,7 @@ No complex setup. No manual steps. Just **run one command and you're done.**
 Run this command on your VPS:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Tusharr-m/Blueprint/main/blueprint-installer.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Tusharr-m/Blueprint/main/installer.sh)
 ```
 
 ---
