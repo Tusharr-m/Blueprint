@@ -201,7 +201,7 @@ main() {
         fi
 
         # Install Node.js 20 using NodeSource
-        run_live "Configuring NodeSource repository" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        run_live "Configuring NodeSource repository" bash -o pipefail -c "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
         run_live "Refreshing apt metadata" sudo apt update -y
         run_live "Installing Node.js 20" sudo apt install -y nodejs
         
